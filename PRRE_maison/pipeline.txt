@@ -1,0 +1,221 @@
+# =========================
+# 0) INPUT MARCHÉ
+# =========================
+
+INPUT:
+- SPX_options_data
+- VIX_options_data
+- VIX_futures_data
+
+OUTPUT:
+- market_data
+
+
+# =========================
+# 1) CONSTRUIRE ξ0(t)
+# =========================
+
+INPUT:
+- SPX_options_data
+- spot S0
+- (optionnel) rates/dividends si on veut raffiner la reconstruction
+
+PAPER METHOD:
+- pour chaque maturité Ti, interpoler/extrapoler une tranche IV SPX propre
+- convertir IV -> prix d'options OTM
+- calculer I(T) = 2 * [∫_0^S0 P(K,T)/K^2 dK + ∫_S0^∞ C(K,T)/K^2 dK]
+- en déduire ∫_[Ti,Ti+1] ξ0(s) ds = I(Ti+1) - I(Ti)
+- reconstruire ξ0(t) soit :
+- piecewise constant sur [Ti, Ti+1)
+- soit via spline cubique sur des noeuds, puis carré pour garantir la positivité
+
+SHORTCUT FOR CURRENT CSV:
+- si on n'a que quelques strikes proches ATM, on peut démarrer avec un proxy simple
+- extraire une ATM vol par maturité
+- construire la total variance w(T) = sigma_ATM(T)^2 * T
+- approcher ξ0 par la pente de w(T) entre deux maturités
+- utile pour coder proprement la première brique, mais ce n'est pas encore le stripping exact du papier
+
+OUTPUT:
+- xi0(t)         # fonction ou courbe
+- (optionnel) nodes_xi0
+
+
+# =========================
+# 2) PARAMÈTRES DU MODÈLE
+# =========================
+
+INPUT:
+- rien (init ou calibration)
+
+PARAMS:
+- alpha0
+- alpha1
+- alpha3
+- alpha5
+- rho
+- H
+- epsilon
+
+OUTPUT:
+- params
+
+
+# =========================
+# 3) PROCESSUS X_t
+# =========================
+
+INPUT:
+- params (H, epsilon)
+- Brownian motion W
+
+OUTPUT:
+- X_t distribution
+- OU dynamics
+
+
+# =========================
+# 4) POLYNÔME p(x)
+# =========================
+
+INPUT:
+- alpha0, alpha1, alpha3, alpha5
+- x
+
+OUTPUT:
+- p(x)
+
+
+# =========================
+# 5) VARIANCE g(t)
+# =========================
+
+INPUT:
+- distribution de X_t
+- p(x)
+
+OUTPUT:
+- g(t) = E[p(X_t)^2]
+
+
+# =========================
+# 6) VOLATILITÉ σ_t
+# =========================
+
+INPUT:
+- xi0(t)
+- X_t
+- p(x)
+- g(t)
+
+OUTPUT:
+- sigma_t
+
+
+# =========================
+# 7) BRANCHE VIX
+# =========================
+
+# 7.1 variance forward conditionnelle
+
+INPUT:
+- sigma_t
+- X_T
+- params
+
+OUTPUT:
+- xi_T(u)
+
+
+# 7.2 VIX²
+
+INPUT:
+- xi_T(u)
+
+OUTPUT:
+- VIX_T²
+
+
+# 7.3 distribution VIX
+
+INPUT:
+- X_T distribution
+- VIX_T² = h(X_T)
+
+OUTPUT:
+- distribution VIX_T
+
+
+# 7.4 prix VIX
+
+INPUT:
+- distribution VIX_T
+- payoff Φ
+
+OUTPUT:
+- VIX_prices
+
+
+# =========================
+# 8) BRANCHE SPX (DEEP LEARNING)
+# =========================
+
+# 8.1 dataset
+
+INPUT:
+- params
+- X_t distribution
+- sigma_t
+- grid (T, K)
+
+OUTPUT:
+- dataset_features
+- dataset_labels
+
+
+# 8.2 modèle
+
+INPUT:
+- dataset_features
+- dataset_labels
+
+OUTPUT:
+- trained_model
+
+
+# 8.3 pricing
+
+INPUT:
+- trained_model
+- (T, K, params)
+
+OUTPUT:
+- SPX_prices
+
+
+# =========================
+# 9) VOL IMPLICITE
+# =========================
+
+INPUT:
+- SPX_prices
+- VIX_prices
+
+OUTPUT:
+- implied_vol_model
+
+
+# =========================
+# 10) CALIBRATION
+# =========================
+
+INPUT:
+- implied_vol_model
+- market_data
+
+OUTPUT:
+- loss
+
+LOOP:
+- ajuster params
+→ params calibrés
